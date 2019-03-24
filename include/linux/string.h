@@ -235,6 +235,21 @@ static inline const char *kbasename(const char *path)
 	return tail ? tail + 1 : path;
 }
 
+/*
+ * Replace some common string helpers with faster alternatives when one of the
+ * arguments is a constant (i.e., literal string). This uses strlen instead of
+ * sizeof for calculating the string length in order to silence compiler
+ * warnings that may arise due to what the compiler thinks is incorrect sizeof
+ * usage. The strlen calls on constants are folded into scalar values at compile
+ * time, so performance is not reduced by using strlen.
+ */
+#define strcpy(dest, src)							\
+	__builtin_choose_expr(__builtin_constant_p(src),			\
+		memcpy((dest), (src), strlen(src) + 1),				\
+		(strcpy)((dest), (src)))
+
+#define strca
+
 #define __FORTIFY_INLINE extern __always_inline __attribute__((gnu_inline))
 #define __RENAME(x) __asm__(#x)
 
