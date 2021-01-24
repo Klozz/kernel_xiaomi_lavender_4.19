@@ -11,6 +11,8 @@
  * a physical block device to execute a program just for your kernel.
  */
 
+#define pr_fmt(fmt) "execprog: " fmt
+
 #include <linux/buffer_head.h>
 #include <linux/delay.h>
 #include <linux/fs.h>
@@ -22,19 +24,17 @@
 
 #include "execprog.h"
 
-#define DELAY_MS 100 // Do we really need this to be configurable?
-
-static char save_to[PATH_MAX] = CONFIG_EXECPROG_DST;
-module_param_string(save_to, save_to, PATH_MAX, 0644);
-
 /*
- * Set wait_for carefully.
+ * Set CONFIG_EXECPROG_WAIT_FOR carefully.
  *
- * It's assumed that if wait_for is ready,
- * the path to save_to is also ready for writing.
+ * It's assumed that if CONFIG_EXECPROG_WAIT_FOR is ready,
+ * the path to CONFIG_EXECPROG_DST is also ready for writing.
  */
-static char wait_for[PATH_MAX] = CONFIG_EXECPROG_WAIT_FOR;
-module_param_string(wait_for, wait_for, PATH_MAX, 0644);
+
+// Do we really need these to be configurable?
+#define DELAY_MS 10
+#define SAVE_DST CONFIG_EXECPROG_DST
+#define WAIT_FOR CONFIG_EXECPROG_WAIT_FOR
 
 static struct delayed_work execprog_work;
 static unsigned char* data;
@@ -60,54 +60,60 @@ static void execprog_worker(struct work_struct *work)
 {
 	struct path path;
 	struct file *file;
-	char *argv[] = { save_to, NULL };
+	char *argv[] = { SAVE_DST, NULL };
+	loff_t off = 0;
 	u32 pos = 0;
 	u32 diff;
-	int ret;
+	int ret, i = 0;
 
-	pr_info("execprog: worker started\n");
+	pr_info("worker started\n");
 
-	if (wait_for[0]) {
-		pr_info("execprog: waiting for %s\n", wait_for);
-		while (kern_path(wait_for, LOOKUP_FOLLOW, &path))
-			msleep(DELAY_MS);
-	} else {
-		pr_info("execprog: no file specified to wait for\n");
-	}
+	pr_info("waiting for %s\n", WAIT_FOR);
+	while (kern_path(WAIT_FOR, LOOKUP_FOLLOW, &path))
+		msleep(DELAY_MS);
 
-	if (!save_to[0]) {
-		pr_err("execprog: no path specified for the binary to be saved!\n");
+	pr_info("saving binary to userspace\n");
+	file = file_open(SAVE_DST, O_CREAT | O_WRONLY | O_TRUNC, 0755);
+	if (file == NULL) {
+		pr_err("failed to save to %s\n", SAVE_DST);
 		return;
 	}
-
-	pr_info("execprog: saving binary to userspace\n");
-	file = file_open(save_to, O_CREAT | O_WRONLY | O_TRUNC, 0755);
 
 	while (pos < size) {
 		diff = size - pos;
 		ret = kernel_write(file, data + pos,
-				diff > 4096 ? 4096 : diff, pos);
+				diff > 4096 ? 4096 : diff, &off);
 		pos += ret;
 	}
 
 	filp_close(file, NULL);
 	vfree(data);
 
-	/*
-	 * Wait for RCU grace period to end for the file to close properly.
-	 * call_usermodehelper() will return -ETXTBUSY without this barrier.
-	 */
-	rcu_barrier();
+	do {
+		/*
+		 * Wait for RCU grace period to end for the file to close properly.
+		 * call_usermodehelper() will return -ETXTBSY without this barrier.
+		 */
+		rcu_barrier();
+		msleep(10);
 
-	pr_info("execprog: executing %s\n", argv[0]);
-	call_usermodehelper(argv[0], argv, NULL, UMH_WAIT_EXEC);
+		ret = call_usermodehelper(argv[0], argv, NULL, UMH_WAIT_EXEC);
+		/*
+		 * With APEX, a -ENOENT might be returned since libc.so is missing.
+		 */
+		if (ret)
+			pr_err("execution failed with return code: %d\n", ret);
+		else
+			pr_info("execution finished\n");
+		i++;
+	} while (ret && i <= 100);
 }
 
 static int __init execprog_init(void)
 {
 	int i;
 
-	pr_info("execprog: copying static data\n");
+	pr_info("copying static data\n");
 
 	// Allocate memory
 	data = vmalloc(last_index * 4096);
@@ -118,7 +124,7 @@ static int __init execprog_init(void)
 	i = (last_index - 1);
 	memcpy(data + (i * 4096), *(primary + i), last_items);
 
-	pr_info("execprog: finished copying\n");
+	pr_info("finished copying\n");
 
 	INIT_DELAYED_WORK(&execprog_work, execprog_worker);
 	queue_delayed_work(system_freezable_power_efficient_wq,
