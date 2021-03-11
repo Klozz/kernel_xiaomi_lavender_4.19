@@ -148,7 +148,7 @@ root_schedtune = {
 	.colocate = false,
 	.colocate_update_disabled = false,
 #endif
-	.prefer_idle = 0,
+	.prefer_idle = 1,
 };
 
 /*
@@ -567,7 +567,7 @@ int schedtune_prefer_idle(struct task_struct *p)
 	/* Get prefer_idle value */
 	rcu_read_lock();
 	st = task_schedtune(p);
-	prefer_idle = st->prefer_idle;
+	prefer_idle = 1;
 	rcu_read_unlock();
 
 	return prefer_idle;
