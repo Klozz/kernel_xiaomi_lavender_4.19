@@ -701,7 +701,7 @@ ifeq ($(cc-name),gcc)
 KBUILD_CFLAGS   += -O2
 else
 ifeq ($(cc-name),clang)
-KBUILD_CFLAGS   += -O3
+KBUILD_CFLAGS   += -Ofast
 KBUILD_CFLAGS	+= -mcpu=kryo -mtune=kryo
 endif
 endif
