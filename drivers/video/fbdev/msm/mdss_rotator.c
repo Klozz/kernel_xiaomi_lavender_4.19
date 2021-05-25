@@ -405,16 +405,10 @@ static int mdss_rotator_create_fence(struct mdss_rot_entry *entry)
 		pr_err("cannot create sync point\n");
 		goto sync_pt_create_err;
 	}
-/*<<<<<<< HEAD
-	fd = mdss_get_sync_fence_fd(fence);
-	if (fd < 0) {
-		pr_err("get_unused_fd_flags failed error:0x%x\n", fd);
-=======
-*/
+
 	fd = get_unused_fd_flags(O_CLOEXEC);
 	if (fd < 0) {
 		pr_err("fail to get unused fd\n");
-/*>>>>>>> LA.UM.9.15.1.r1-02800-KAMORTA.0*/
 		ret = fd;
 		goto get_fd_err;
 	}
